@@ -26,6 +26,11 @@ let package = Package(
             name: "RDFCanonize",
             dependencies: [.product(name: "Crypto", package: "swift-crypto")]
         ),
+        .executableTarget(
+            name: "RDFCanonizeBench",
+            dependencies: ["RDFCanonize"],
+            path: "Sources/RDFCanonizeBench"
+        ),
         .testTarget(
             name: "RDFCanonizeTests",
             dependencies: ["RDFCanonize"],
