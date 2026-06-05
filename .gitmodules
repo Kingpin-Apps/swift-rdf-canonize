@@ -1,0 +1,3 @@
+[submodule "Tests/RDFCanonizeTests/rdf-canon"]
+	path = Tests/RDFCanonizeTests/rdf-canon
+	url = https://github.com/w3c/rdf-canon

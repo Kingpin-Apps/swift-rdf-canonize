@@ -28,7 +28,11 @@ let package = Package(
         ),
         .testTarget(
             name: "RDFCanonizeTests",
-            dependencies: ["RDFCanonize"]
+            dependencies: ["RDFCanonize"],
+            // The W3C rdf-canon conformance suite is a git submodule.
+            // Fixtures are read from disk at runtime via #filePath, not
+            // bundled as resources, so SPM should ignore the directory.
+            exclude: ["rdf-canon"]
         ),
     ],
     swiftLanguageModes: [.v6]
