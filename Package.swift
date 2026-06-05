@@ -18,9 +18,13 @@ let package = Package(
             targets: ["RDFCanonize"]
         ),
     ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
+    ],
     targets: [
         .target(
-            name: "RDFCanonize"
+            name: "RDFCanonize",
+            dependencies: [.product(name: "Crypto", package: "swift-crypto")]
         ),
         .testTarget(
             name: "RDFCanonizeTests",
