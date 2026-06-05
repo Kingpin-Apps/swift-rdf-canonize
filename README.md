@@ -11,9 +11,28 @@ JavaScript ecosystem. Use it directly when you need to hash an RDF
 dataset deterministically (CIP-100 governance signatures, verifiable
 credentials, etc.) without pulling in the full JSON-LD surface.
 
-> **Status: skeleton only.** The algorithm lands in Phase 5 of the
-> swift-jsonld build plan. Track progress in
-> [swift-jsonld#README](https://github.com/Kingpin-Apps/swift-jsonld#build-plan).
+> **Status:** Full RDFC-1.0 implementation — n-degree hash recursion,
+> SHA-256 and SHA-384, full N-Quads escape fidelity, and bounded-iteration
+> poison-graph rejection. Every entry in the
+> [W3C `rdf-canon` test suite](https://github.com/w3c/rdf-canon) passes
+> on every `swift test` run.
+
+## Quickstart
+
+```swift
+import RDFCanonize
+
+let canonical = try RDFCanonize.canonicalize(nquads: """
+_:b1 <http://example.org/p> _:b2 .
+_:b2 <http://example.org/q> "leaf" .
+""")
+```
+
+Blank-node labels are reassigned to `_:c14n0`, `_:c14n1`, …; quads are
+emitted in lexicographic order; duplicate quads collapse. The
+quads-based variant (`RDFCanonize.canonicalize(quads:)`) is the entry
+point used by [swift-jsonld](https://github.com/Kingpin-Apps/swift-jsonld)'s
+`JSONLD.canonize()`.
 
 ## Platforms
 
@@ -26,6 +45,15 @@ visionOS 1+, Linux (Swift 6.0+).
 dependencies: [
     .package(url: "https://github.com/Kingpin-Apps/swift-rdf-canonize.git", from: "0.1.0"),
 ],
+```
+
+## Running the conformance suite
+
+The W3C `rdf-canon` test suite is checked in as a git submodule:
+
+```bash
+git submodule update --init
+swift test
 ```
 
 ## License
