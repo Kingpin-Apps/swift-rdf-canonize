@@ -16,11 +16,17 @@ extension RDFCanonize {
 
         static func parse(_ input: String) throws -> [Quad] {
             var quads: [Quad] = []
-            for raw in input.split(separator: "\n", omittingEmptySubsequences: false) {
-                var line = String(raw).trimmingCharacters(in: .whitespaces)
+            // Split on LF, CR, and CRLF only. Splitting on the
+            // `Character("\n")` misses CRLF because Swift treats `\r\n`
+            // as a single extended grapheme cluster, and using
+            // `CharacterSet.newlines` would over-split on Unicode
+            // newline-class characters (e.g. U+0085 NEL) that can
+            // legitimately appear inside literal values (W3C `test060`).
+            for raw in splitLines(input) {
+                var line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                 // Strip trailing dot (and any whitespace before it).
                 if line.hasSuffix(".") {
-                    line = String(line.dropLast()).trimmingCharacters(in: .whitespaces)
+                    line = String(line.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 if line.isEmpty || line.hasPrefix("#") { continue }
                 let terms = try tokenize(line)
@@ -35,6 +41,42 @@ extension RDFCanonize {
                 ))
             }
             return quads
+        }
+
+        /// Split `input` into lines on LF, CR, or CRLF only. Walking
+        /// the Unicode scalar view keeps surrogate pairs intact and
+        /// avoids over-splitting on Unicode newline-class characters
+        /// that legitimately appear inside literals (e.g. U+0085 NEL).
+        private static func splitLines(_ input: String) -> [String] {
+            var out: [String] = []
+            var current = ""
+            let scalars = input.unicodeScalars
+            var i = scalars.startIndex
+            while i < scalars.endIndex {
+                let s = scalars[i]
+                if s.value == 0x0D {
+                    // CR — consume the optional LF that may follow.
+                    out.append(current)
+                    current = ""
+                    let next = scalars.index(after: i)
+                    if next < scalars.endIndex, scalars[next].value == 0x0A {
+                        i = scalars.index(after: next)
+                    } else {
+                        i = next
+                    }
+                    continue
+                }
+                if s.value == 0x0A {
+                    out.append(current)
+                    current = ""
+                    i = scalars.index(after: i)
+                    continue
+                }
+                current.unicodeScalars.append(s)
+                i = scalars.index(after: i)
+            }
+            out.append(current)
+            return out
         }
 
         /// Tokenize a single (already dot-trimmed) N-Quads line into
