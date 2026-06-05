@@ -54,8 +54,8 @@ extension RDFCanonize {
                     guard let close = line.range(of: ">", range: idx..<end) else {
                         throw ParseError.malformedLine(line)
                     }
-                    let iri = String(line[line.index(after: idx)..<close.lowerBound])
-                    out.append(.iri(iri))
+                    let raw = String(line[line.index(after: idx)..<close.lowerBound])
+                    out.append(.iri(unescapeIRI(raw)))
                     idx = close.upperBound
                 } else if ch == "_" {
                     // Blank node: _:label
@@ -99,7 +99,7 @@ extension RDFCanonize {
                         guard idx < end, line[idx] == "<",
                               let close = line.range(of: ">", range: idx..<end)
                         else { throw ParseError.malformedLine(line) }
-                        datatype = String(line[line.index(after: idx)..<close.lowerBound])
+                        datatype = unescapeIRI(String(line[line.index(after: idx)..<close.lowerBound]))
                         idx = close.upperBound
                     }
                     out.append(.literal(Literal(value: lex, datatype: datatype, language: lang)))
@@ -110,23 +110,86 @@ extension RDFCanonize {
             return out
         }
 
+        /// Decode N-Quads literal escapes per
+        /// [§3.1 STRING_LITERAL_QUOTE](https://www.w3.org/TR/n-quads/#sec-grammar):
+        /// `\b \t \n \f \r \" \' \\` plus `\uXXXX` and `\UXXXXXXXX`.
         private static func unescape(_ s: String) -> String {
             var out = ""
             out.reserveCapacity(s.count)
-            var iter = s.makeIterator()
-            while let ch = iter.next() {
-                if ch != "\\" { out.append(ch); continue }
-                guard let next = iter.next() else { out.append(ch); break }
+            let chars = Array(s)
+            var i = 0
+            while i < chars.count {
+                let ch = chars[i]
+                if ch != "\\" { out.append(ch); i += 1; continue }
+                guard i + 1 < chars.count else { out.append(ch); break }
+                let next = chars[i + 1]
                 switch next {
-                case "n": out.append("\n")
-                case "r": out.append("\r")
-                case "t": out.append("\t")
-                case "\"": out.append("\"")
-                case "\\": out.append("\\")
-                default: out.append(next)
+                case "b": out.append("\u{0008}"); i += 2
+                case "t": out.append("\t");       i += 2
+                case "n": out.append("\n");       i += 2
+                case "f": out.append("\u{000C}"); i += 2
+                case "r": out.append("\r");       i += 2
+                case "\"": out.append("\"");      i += 2
+                case "'":  out.append("'");       i += 2
+                case "\\": out.append("\\");      i += 2
+                case "u":
+                    if let scalar = readHexScalar(chars, start: i + 2, length: 4) {
+                        out.append(Character(scalar))
+                        i += 6
+                    } else {
+                        out.append(next); i += 2
+                    }
+                case "U":
+                    if let scalar = readHexScalar(chars, start: i + 2, length: 8) {
+                        out.append(Character(scalar))
+                        i += 10
+                    } else {
+                        out.append(next); i += 2
+                    }
+                default:
+                    out.append(next); i += 2
                 }
             }
             return out
+        }
+
+        /// Decode IRI escapes per
+        /// [§3.1 IRIREF](https://www.w3.org/TR/n-quads/#sec-grammar):
+        /// only `\uXXXX` and `\UXXXXXXXX` are recognized inside `<…>`.
+        static func unescapeIRI(_ s: String) -> String {
+            if !s.contains("\\") { return s }
+            var out = ""
+            out.reserveCapacity(s.count)
+            let chars = Array(s)
+            var i = 0
+            while i < chars.count {
+                let ch = chars[i]
+                if ch != "\\" || i + 1 >= chars.count {
+                    out.append(ch); i += 1; continue
+                }
+                let next = chars[i + 1]
+                if next == "u", let scalar = readHexScalar(chars, start: i + 2, length: 4) {
+                    out.append(Character(scalar)); i += 6
+                } else if next == "U", let scalar = readHexScalar(chars, start: i + 2, length: 8) {
+                    out.append(Character(scalar)); i += 10
+                } else {
+                    out.append(ch); i += 1
+                }
+            }
+            return out
+        }
+
+        private static func readHexScalar(_ chars: [Character], start: Int, length: Int) -> Unicode.Scalar? {
+            guard start + length <= chars.count else { return nil }
+            var hex = ""
+            hex.reserveCapacity(length)
+            for j in start..<(start + length) {
+                let c = chars[j]
+                guard c.isHexDigit else { return nil }
+                hex.append(c)
+            }
+            guard let value = UInt32(hex, radix: 16) else { return nil }
+            return Unicode.Scalar(value)
         }
     }
 }

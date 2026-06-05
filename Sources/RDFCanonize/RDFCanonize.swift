@@ -6,28 +6,55 @@ import Foundation
 /// `RDFCanonize` is the public namespace for the package. Public entry
 /// points are static functions; there is no instance to construct.
 ///
-/// > **Status — Phase 5 in progress.** The straightforward path
-/// > (datasets with no blank-node label collisions) is working.
-/// > The n-degree hash recursion that handles symmetric blank-node
-/// > graphs is partial — full RDFC-1.0 conformance is iterative work
-/// > against the [w3c/rdf-canon](https://github.com/w3c/rdf-canon)
-/// > test suite.
+/// See the catalog documentation for an overview, quickstart, and the
+/// current conformance picture against the
+/// [w3c/rdf-canon](https://github.com/w3c/rdf-canon) test suite.
 public enum RDFCanonize {}
 
 extension RDFCanonize {
     /// Canonicalize an N-Quads document. Returns canonical N-Quads
     /// with `_:c14n0`, `_:c14n1`, … blank-node labels in lexicographic
     /// order.
-    public static func canonicalize(nquads: String) throws -> String {
+    public static func canonicalize(
+        nquads: String,
+        hashAlgorithm: HashAlgorithm = .sha256,
+        workFactor: Int = .max
+    ) throws -> String {
         let quads = try NQuadsParser.parse(nquads)
-        return canonicalize(quads: quads)
+        return try canonicalize(
+            quads: quads,
+            hashAlgorithm: hashAlgorithm,
+            workFactor: workFactor
+        )
     }
 
     /// Canonicalize an already-parsed list of quads.
-    public static func canonicalize(quads: [Quad]) -> String {
-        let labels = IdentifierIssuer.canonicalIdentifiers(for: quads)
-        let relabeled = quads.map { relabel($0, with: labels) }
+    public static func canonicalize(
+        quads: [Quad],
+        hashAlgorithm: HashAlgorithm = .sha256,
+        workFactor: Int = .max
+    ) throws -> String {
+        // An RDF dataset is a set — duplicate quads collapse to one.
+        // RDFC-1.0 operates on the deduplicated dataset.
+        let dataset = deduplicate(quads)
+        let labels = try Canonicalizer.canonicalLabels(
+            for: dataset,
+            hashAlgorithm: hashAlgorithm,
+            workFactor: workFactor
+        )
+        let relabeled = dataset.map { relabel($0, with: labels) }
         return NQuadsWriter.serialize(quads: relabeled.sorted { $0.canonicalKey < $1.canonicalKey })
+    }
+
+    /// Stable dedup: keep first occurrence, preserve original order.
+    private static func deduplicate(_ quads: [Quad]) -> [Quad] {
+        var seen: Set<Quad> = []
+        var out: [Quad] = []
+        out.reserveCapacity(quads.count)
+        for q in quads where seen.insert(q).inserted {
+            out.append(q)
+        }
+        return out
     }
 
     private static func relabel(_ quad: Quad, with labels: [String: String]) -> Quad {
