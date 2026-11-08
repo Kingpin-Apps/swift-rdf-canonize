@@ -1,3 +1,9 @@
+## 0.2.3 (2026-11-08)
+
+### Fix
+
+- bound permutation work under a finite workFactor and enumerate permutations lazily
+
 ## 0.2.2 (2026-06-06)
 
 ### Fix
