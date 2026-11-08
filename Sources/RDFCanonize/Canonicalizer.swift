@@ -31,6 +31,10 @@ extension RDFCanonize {
         /// raised to `workFactor`. Decremented at the head of every
         /// `hashNDegreeQuads` invocation.
         private var remainingDeepIterations: Int = .max
+        /// Permutations visited across all n-degree hashes. A node with
+        /// many identical neighbours enumerates n! orderings without
+        /// recursing, which the deep-iteration budget alone never sees.
+        private var remainingPermutations: Int = .max
 
         private struct BlankNodeInfo {
             var quads: [Quad] = []
@@ -106,9 +110,12 @@ extension RDFCanonize {
             // workFactor 0/2/3 in the W3C conformance runner).
             if workFactor == .max {
                 remainingDeepIterations = .max
+                remainingPermutations = .max
             } else {
                 let nonUniqueCount = nonUnique.reduce(0) { $0 + $1.count }
                 remainingDeepIterations = boundedPow(nonUniqueCount, workFactor)
+                let (scaled, overflow) = remainingDeepIterations.multipliedReportingOverflow(by: 1024)
+                remainingPermutations = overflow ? .max : max(scaled, 1024)
             }
 
             // Step 6: resolve non-unique groups via n-degree hashing.
@@ -232,6 +239,19 @@ extension RDFCanonize {
                 var chosenIssuer: IdentifierIssuer? = nil
 
                 for permutation in Self.permutations(of: relatedList) {
+                    // Each permutation is work too: a node with many
+                    // identical neighbours enumerates n! orderings
+                    // without recursing, so a finite budget must cover
+                    // them as well as the recursive calls, with a
+                    // separate, larger allowance than recursion.
+                    if remainingPermutations != .max {
+                        if remainingPermutations == 0 {
+                            throw CanonicalizeError.iterationLimitExceeded(
+                                limit: boundedPow(blankNodeInfo.count, workFactor)
+                            )
+                        }
+                        remainingPermutations -= 1
+                    }
                     var issuerCopy = workingIssuer
                     var path = ""
                     var recursionList: [String] = []
@@ -338,20 +358,39 @@ extension RDFCanonize {
 
         // MARK: Permuter
 
-        /// All permutations of `list`. Sufficient for typical documents;
-        /// poison-graph inputs are caught by the `remainingDeepIterations`
-        /// budget rather than by a bounded permuter.
-        static func permutations<T>(of list: [T]) -> [[T]] {
-            if list.count <= 1 { return [list] }
-            var out: [[T]] = []
-            for i in 0..<list.count {
-                var rest = list
-                let head = rest.remove(at: i)
-                for tail in permutations(of: rest) {
-                    out.append([head] + tail)
-                }
+        /// All permutations of `list`, produced lazily in lexicographic
+        /// order of positions so memory stays linear in `list.count`
+        /// however many permutations are visited.
+        static func permutations<T>(of list: [T]) -> LazyPermutations<T> {
+            LazyPermutations(list)
+        }
+
+        struct LazyPermutations<T>: Sequence, IteratorProtocol {
+            private let items: [T]
+            private var indices: [Int]
+            private var done = false
+
+            init(_ items: [T]) {
+                self.items = items
+                self.indices = Array(items.indices)
             }
-            return out
+
+            mutating func next() -> [T]? {
+                guard !done else { return nil }
+                let current = indices.map { items[$0] }
+                // Advance to the next lexicographic permutation of indices.
+                var i = indices.count - 2
+                while i >= 0 && indices[i] >= indices[i + 1] { i -= 1 }
+                if i < 0 {
+                    done = true
+                } else {
+                    var j = indices.count - 1
+                    while indices[j] <= indices[i] { j -= 1 }
+                    indices.swapAt(i, j)
+                    indices[(i + 1)...].reverse()
+                }
+                return current
+            }
         }
 
         // MARK: Hash

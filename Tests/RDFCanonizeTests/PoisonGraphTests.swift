@@ -63,4 +63,39 @@ struct PoisonGraphTests {
         let out = try RDFCanonize.canonicalize(quads: Self.clique(nodes: 3))
         #expect(!out.isEmpty)
     }
+
+    /// Two identical blank-node stars, each with `leaves` identical
+    /// leaf blank nodes. Each star node relates to many indistinguishable
+    /// leaves, so n-degree hashing walks leaves! orderings per call
+    /// without recursing deeper.
+    private static func stars(leaves k: Int) -> [RDFCanonize.Quad] {
+        var out: [RDFCanonize.Quad] = []
+        for s in 0..<2 {
+            for l in 0..<k {
+                out.append(.init(subject: .blankNode("_:s\(s)"), predicate: .iri("urn:p"),
+                                 object: .blankNode("_:s\(s)l\(l)")))
+                out.append(.init(subject: .blankNode("_:s\(s)l\(l)"), predicate: .iri("urn:q"),
+                                 object: .literal(.init(value: "x"))))
+            }
+        }
+        return out
+    }
+
+    @Test("A finite workFactor bounds permutations of identical neighbours, not just recursion")
+    func starBound() {
+        let start = ContinuousClock.now
+        #expect(throws: RDFCanonize.CanonicalizeError.self) {
+            _ = try RDFCanonize.canonicalize(quads: Self.stars(leaves: 10), workFactor: 2)
+        }
+        #expect(ContinuousClock.now - start < .seconds(5))
+    }
+
+    @Test("Lazy permutations enumerate every ordering exactly once")
+    func lazyPermutations() {
+        let perms = Array(RDFCanonize.Canonicalizer.permutations(of: [1, 2, 3, 4]))
+        #expect(perms.count == 24)
+        #expect(Set(perms.map { $0.map(String.init).joined() }).count == 24)
+        #expect(Array(RDFCanonize.Canonicalizer.permutations(of: [Int]())) == [[]])
+        #expect(Array(RDFCanonize.Canonicalizer.permutations(of: [7])) == [[7]])
+    }
 }
